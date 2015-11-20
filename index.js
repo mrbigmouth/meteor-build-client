@@ -140,8 +140,8 @@ function createIndexHtml(state, callback) {
   else {
     settingExtraContent = '<script type="text/javascript">if (Meteor.disconnect) { Meteor.disconnect(); }</script>';
   }
-  const settingContent = '<script type="text/javascript">__meteor_runtime_config__ = JSON.parse(decodeURIComponent("'+encodeURIComponent(JSON.stringify(settings))+'"));</script>' + settingExtraContent;
-  indexContent = indexContent.replace(/{{ *> *scripts *}}/, settingContent + scriptLinkList.join('\n'));
+  const settingContent = '<script type="text/javascript">__meteor_runtime_config__ = JSON.parse(decodeURIComponent("'+encodeURIComponent(JSON.stringify(settings))+'"));</script>';
+  indexContent = indexContent.replace(/{{ *> *scripts *}}/, settingContent + scriptLinkList.join('\n') + settingExtraContent);
 
   // write the index.html
   console.log('create index.html...');
