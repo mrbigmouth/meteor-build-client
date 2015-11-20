@@ -1,6 +1,6 @@
 {
   "name": "meteor-client-builder",
-  "version": "0.2.2",
+  "version": "1.0.0",
   "description": "A bundles the client part of a Meteor app.",
   "author": "Bob Lee <b92101007@gmail.com>",
   "contributors": [
@@ -27,9 +27,6 @@
     "client-only",
     "browser-only"
   ],
-  "bin": {
-    "meteor-build-client": "main.js"
-  },
   "dependencies": {
     "underscore": "1.8.3"
   },

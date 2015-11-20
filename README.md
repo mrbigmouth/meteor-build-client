@@ -9,7 +9,7 @@
 
 ```js
 const path = require('path');
-require('meteor-build-client')({
+require('meteor-client-builder')({
   sourcePath: path.resolve('meteor'),
   buildPath: path.resolve('client'),
   args: ['--debug']
