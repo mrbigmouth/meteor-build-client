@@ -1,20 +1,22 @@
 {
-  "name": "meteor-build-client",
+  "name": "meteor-client-builder",
   "version": "0.2.2",
   "description": "A bundles the client part of a Meteor app.",
-  "author": "Fabian Vogelsteller <fabian@frozeman.de>",
+  "author": "Bob Lee <b92101007@gmail.com>",
   "contributors": [
     {
       "name": "Morten N.O. Nørgaard Henriksen",
       "email": "mh@gi2.dk"
+    },
+    {
+      "name": "Fabian Vogelsteller",
+      "email": "fabian@frozeman.de"
     }
   ],
-  "preferGlobal": true,
-  "analyze": true,
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/frozeman/meteor-build-client"
+    "url": "https://github.com/mrbigmouth/meteor-build-client.git"
   },
   "bugs": {
     "url": "https://github.com/frozeman/meteor-build-client/issues"
@@ -28,11 +30,8 @@
   "bin": {
     "meteor-build-client": "main.js"
   },
-  "main": "main.js",
   "dependencies": {
-    "commander": "^2.8.1",
-    "simple-spinner": "0.0.3",
-    "underscore": "^1.8.3"
+    "underscore": "1.8.3"
   },
   "devDependencies": {}
 }
