@@ -1,187 +1,200 @@
+'use strict';
 // MODULES
-var fs = require('fs');
-var path = require('path');
-var _ = require('underscore');
-var spinner = require('simple-spinner');
-
-// VARIABLES
-var argPath = process.argv[2],
-    basePath = './',
-    buildPath = path.resolve(argPath),
-    bundleName = path.basename(path.resolve(basePath));
+const fs = require('fs');
+const path = require('path');
+const _ = require('underscore');
 
 // execute shell scripts
-var execute = function(command, name, complete) {
-    var exec = require('child_process').exec;
+function execute(command, args, cwd, callback) {
+  const spawn = require('child_process').spawn(command, args, {cwd});
+  const argString = args.join(' ');
+  console.log(`execute command "${command} ${argString}" in ${cwd}...`);
+  spawn.stdout.on('data', function(data) {
+    console.log(data);
+  });
+  spawn.stderr.on('data', function(warn) {
+    console.log(warn);
+  });
+  spawn.stderr.on('error', function(error) {
+    callback(error);
+  });
+  spawn.on('close', function (code) {
+    callback();
+  });
+};
 
-    var completeFunc = (typeof complete === 'function') ? complete : console.log;
-
-    spinner.start();
-    exec(command, {
-        cwd: basePath
-    },function(err, res) {
-        spinner.stop();
-
-        //process error
-        if(err){
-            console.log(err.message);
-            completeFunc(err);
-
-        } else {
-            completeFunc();
-        }
+//delete folder recursive
+function deleteFolderRecursive(path) {
+  if (fs.existsSync(path)) {
+    const files = fs.readdirSync(path);
+    files.forEach(function(file, index) {
+      const curPath = path + "/" + file;
+      if(fs.lstatSync(curPath).isDirectory()) {
+        deleteFolderRecursive(curPath);
+      }
+      else {
+        fs.unlinkSync(curPath);
+      }
     });
+    fs.rmdirSync(path);
+  }
 };
 
-var deleteFolderRecursive = function(path) {
-    var files = [];
-    if( fs.existsSync(path) ) {
-        files = fs.readdirSync(path);
-        files.forEach(function(file,index){
-            var curPath = path + "/" + file;
-            if(fs.lstatSync(curPath).isDirectory()) { // recurse
-                deleteFolderRecursive(curPath);
-            } else { // delete file
-                fs.unlinkSync(curPath);
-            }
-        });
-        fs.rmdirSync(path);
+//use meteor command to build
+function build(state, callback) {
+  console.log('Bundling Meteor app...');
+  // remove the bundle folder
+  deleteFolderRecursive(state.buildPath);
+  const args = ['build', ...state.args, '--directory', state.buildPath];
+  execute(
+    'meteor',
+    args,
+    state.sourcePath,
+    function(error, respond) {
+      if (error) {
+        callback(error, state);
+      }
+      else {
+        console.log(respond);
+        callback(null, state);
+      }
     }
+  );
 };
 
+function move(state, callback) {
+  console.log('move client file to build path...');
+  try {
+    const files = state.files;
+    const buildPath = state.buildPath;
+    const clientPath = path.join(buildPath, '/bundle/programs/web.browser');
+    fs.readdirSync(clientPath).forEach(function(file) {
+      const source = path.join(clientPath, file);
+      const to = path.join(buildPath, file);
+      console.log(`move ${source} to ${to}`);
+      fs.renameSync(source, to);
+    });
+    //save star json
+    state.starJson = require(path.join(buildPath, '/bundle/star.json'));
+    state.programJson = require(path.join(buildPath, 'program.json'));
+    callback(null, state);
+  }
+  catch(e) {
+    callback(e, state);
+  }
+};
 
-module.exports = {
-    build: function(program, callback){
-        // remove the bundle folder
-        deleteFolderRecursive(buildPath);
+function createIndexHtml(state, callback) {
+  console.log('create index html...');
+  const buildPath = state.buildPath;
+  const starJson = state.starJson;
+  const programJson = state.programJson;
+  const settingsJson = state.settings || {};
 
-        var command = 'meteor build '+ argPath + ' --directory';
+  console.log('reading index template...');
+  let indexContent = fs.readFileSync(state.template || path.resolve(__dirname, 'index.html'), {encoding: 'utf-8'});
+  console.log('reading <head> content...');
+  let headContent;
+  try {
+    headContent = fs.readFileSync(path.join(buildPath, 'head.html'), {encoding: 'utf8'});
+  }
+  catch(e) {
+    headContent = '';
+    console.log('No <head> found in Meteor app...');
+  }
+  console.log('put <head> content into index html...');
+  indexContent = indexContent.replace(/{{ *> *head *}}/, headContent);
 
-        if(program.url)
-             command += ' --server '+ program.url;
+  // ADD CSS
+  const styleFiles = programJson.manifest.filter(o => o.type === 'css');
+  console.log('put css links into index html...');
+  const styleLinkList = styleFiles.map((o) => {
+    return `<link rel="stylesheet" type="text/css" class="__meteor-css__" href="${o.url}">`;
+  });
+  indexContent = indexContent.replace(/{{ *> *css *}}/, styleLinkList.join('\n'));
 
-         // if(program.settings)
-         //     command += ' --mobile-settings '+ program.settings;
+  // ADD the SCRIPT files
+  console.log('put script links into index html...');
+  const scriptFiles = programJson.manifest.filter(o => o.type === 'js');
+  const scriptLinkList = scriptFiles.map((o) => {
+    return `<script type="text/javascript" src="${o.url}"></script>`;
+  });
+  // add the meteor runtime config
+  const settings = {
+    'meteorRelease': starJson.meteorRelease,
+    'ROOT_URL_PATH_PREFIX': ''
+    // 'DDP_DEFAULT_CONNECTION_URL': program.url || '', // will reload infinite if Meteor.disconnect is not called
+  };
+  // on url = "default", we dont set the ROOT_URL, so Meteor chooses the app serving url for its DDP connection
+  if (state.url) {
+    settings.ROOT_URL = state.url || '';
+  }
+  if (settingsJson.public) {
+    settings.PUBLIC_SETTINGS = settingsJson.public;
+  }
+  const settingContent = '<script type="text/javascript">__meteor_runtime_config__ = JSON.parse(decodeURIComponent("'+encodeURIComponent(JSON.stringify(settings))+'"));</script>';
+  indexContent = indexContent.replace(/{{ *> *scripts *}}/, settingContent + scriptLinkList.join('\n'));
 
-         // console.log('Running: '+ command);
-
-        execute(command, 'build the app, are you in your meteor apps folder?', callback);
-    },
-    move: function(callback){
-
-        try {
-            _.each([
-                '/bundle/programs/web.browser',
-                '/bundle/programs/web.browser/app'
-            ], function(givenPath){
-                var clientPath = path.join(buildPath, givenPath);
-                var rootFolder = fs.readdirSync(clientPath);
-                rootFolder = _.without(rootFolder, 'app');
-
-                rootFolder.forEach( function (file) {
-                    var curSource = path.join(clientPath, file);
-
-                    fs.renameSync(path.join(clientPath, file), path.join(buildPath, file));
-                });
-            });
-        } catch(e) {
-
-        }
-
-        callback();
-    },
-    addIndexFile: function(program, callback){
-        var starJson = require(path.resolve(buildPath) + '/bundle/star.json');
-        var settingsJson = program.settings ? require(path.resolve(program.settings)) : {};
-
-        var content = fs.readFileSync(program.template || path.resolve(__dirname, 'index.html'), {encoding: 'utf-8'});
-        var head;
-        try{
-            head = fs.readFileSync(path.join(buildPath, 'head.html'), {encoding: 'utf8'});
-        } catch(e) {
-            head = '';
-            console.log('No <head> found in Meteor app...');
-        }
-        // ADD HEAD
-        content = content.replace(/{{ *> *head *}}/,head);
-
-        // get the css and js files
-        var files = {};
-        _.each(fs.readdirSync(buildPath), function(file){
-            if(/^[a-z0-9]{40}\.css$/.test(file))
-                files['css'] = file;
-            if(/^[a-z0-9]{40}\.js$/.test(file))
-                files['js'] = file;
-        });
-
-        // MAKE PATHS ABSOLUTE
-        if(_.isString(program.path)) {
-
-            // fix paths in the CSS file
-            if(!_.isEmpty(files['css'])) {
-
-                var cssFile = fs.readFileSync(path.join(buildPath, files['css']), {encoding: 'utf8'});
-                cssFile = cssFile.replace(/url\(\'\//g, 'url(\''+ program.path).replace(/url\(\//g, 'url('+ program.path);
-                fs.unlinkSync(path.join(buildPath, files['css']));
-                fs.writeFileSync(path.join(buildPath, files['css']), cssFile, {encoding: 'utf8'});
-
-                files['css'] = program.path + files['css'];
-            }
-            files['js'] = program.path + files['js'];
-        } else {
-            if(!_.isEmpty(files['css']))
-                files['css'] = '/'+ files['css'];
-            files['js'] = '/'+ files['js'];
-        }
-
-
-        // ADD CSS
-        var css = '<link rel="stylesheet" type="text/css" class="__meteor-css__" href="'+ files['css'] +'?meteor_css_resource=true">';
-        content = content.replace(/{{ *> *css *}}/, css);
-
-        // ADD the SCRIPT files
-        var scripts = '__meteor_runtime_config__'+ "\n"+
-        '        <script type="text/javascript" src="'+ files['js'] +'"></script>'+ "\n";
-
-        // add the meteor runtime config
-        settings = {
-            'meteorRelease': starJson.meteorRelease,
-            'ROOT_URL_PATH_PREFIX': '',
-            // 'DDP_DEFAULT_CONNECTION_URL': program.url || '', // will reload infinite if Meteor.disconnect is not called
-            // 'appId': process.env.APP_ID || null,
-            // 'autoupdateVersion': null, // "ecf7fcc2e3d4696ea099fdd287dfa56068a692ec"
-            // 'autoupdateVersionRefreshable': null, // "c5600e68d4f2f5b920340f777e3bfc4297127d6e"
-            // 'autoupdateVersionCordova': null
-        };
-        // on url = "default", we dont set the ROOT_URL, so Meteor chooses the app serving url for its DDP connection
-        if(program.url !== 'default')
-            settings.ROOT_URL = program.url || '';
-
-
-        if(settingsJson.public)
-            settings.PUBLIC_SETTINGS = settingsJson.public;
-
-        scripts = scripts.replace('__meteor_runtime_config__', '<script type="text/javascript">__meteor_runtime_config__ = JSON.parse(decodeURIComponent("'+encodeURIComponent(JSON.stringify(settings))+'"));</script>');
-        
-        // add Meteor.disconnect() when no server is given
-        if(!program.url)
-            scripts += '        <script type="text/javascript">Meteor.disconnect();</script>';
-
-        content = content.replace(/{{ *> *scripts *}}/, scripts);
-
-        // write the index.html
-        fs.writeFile(path.join(buildPath, 'index.html'), content, callback);
-    },
-    cleanUp: function(callback) {
-
-        // remove files
-        deleteFolderRecursive(path.join(buildPath, 'bundle'));
-        fs.unlinkSync(path.join(buildPath, 'program.json'));
-        try{
-            fs.unlinkSync(path.join(buildPath, 'head.html'));
-        } catch (e){
-            console.log("Didn't unlink head.html; doesn't exist.");
-        }
-        callback();
+  // write the index.html
+  console.log('create index.html...');
+  fs.writeFile(path.join(buildPath, 'index.html'), indexContent, function(error) {
+    if (error) {
+      callback(error, state);
     }
+    else {
+      callback(null, state);
+    }
+  });
+}
+
+function cleanUp(state, callback) {
+  console.log('clean up temp files...');
+  const buildPath = state.buildPath;
+  try {
+    deleteFolderRecursive(path.join(buildPath, 'bundle'));
+    fs.unlinkSync(path.join(buildPath, 'program.json'));
+    fs.unlinkSync(path.join(buildPath, 'head.html'));
+    callback(null, state);
+  }
+  catch (error){
+    callback(error);
+  }
+}
+
+const async = require('async');
+const startBuild = _.debounce(function startBuild(options) {
+  async.waterfall([
+    function initialize(callback) {
+      callback(null, options);
+    },
+    build,
+    move,
+    createIndexHtml,
+    cleanUp
+  ], function(error) {
+    if (error) {
+      console.log(error);
+      process.exit(1);
+    }
+    else {
+      console.log('build meteor client done!');
+    }
+  });
+}, 1000);
+
+module.exports = function startWatch(options) {
+  fs.watch(options.sourcePath, {
+    persistent: false,
+    recursive: true
+  })
+  .on('change', function() {
+    console.log('detect source change...');
+    startBuild(options);
+  })
+  .on('error', function(error) {
+    console.log(error);
+    process.exit(1);
+  });
+  console.log('start first time build...');
+  startBuild(options);
 }
