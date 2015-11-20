@@ -92,7 +92,7 @@ function createIndexHtml(state, callback) {
   const settingsJson = state.settings || {};
 
   console.log('reading index template...');
-  let indexContent = fs.readFileSync(state.template || path.resolve(__dirname, 'index.html'), {encoding: 'utf-8'});
+  let indexContent = state.template || fs.readFileSync(path.resolve(__dirname, 'index.html'), {encoding: 'utf-8'});
   console.log('reading <head> content...');
   let headContent;
   try {
@@ -123,16 +123,24 @@ function createIndexHtml(state, callback) {
   const settings = {
     'meteorRelease': starJson.meteorRelease,
     'ROOT_URL_PATH_PREFIX': ''
-    // 'DDP_DEFAULT_CONNECTION_URL': program.url || '', // will reload infinite if Meteor.disconnect is not called
   };
   // on url = "default", we dont set the ROOT_URL, so Meteor chooses the app serving url for its DDP connection
-  if (state.url) {
-    settings.ROOT_URL = state.url || '';
+  if (state.root_url) {
+    settings.ROOT_URL = state.root_url;
   }
   if (settingsJson.public) {
     settings.PUBLIC_SETTINGS = settingsJson.public;
   }
-  const settingContent = '<script type="text/javascript">__meteor_runtime_config__ = JSON.parse(decodeURIComponent("'+encodeURIComponent(JSON.stringify(settings))+'"));</script>';
+  let settingExtraContent = '';
+  //if set ddp url, change DDP_DEFAULT_CONNECTION_URL in settings
+  if (state.ddp_url) {
+    settings.DDP_DEFAULT_CONNECTION_URL = state.ddp_url;
+  }
+  //else if have ddp packages, automatic disconnect ddp
+  else {
+    settingExtraContent = '<script type="text/javascript">if (Meteor.disconnect) { Meteor.disconnect(); }</script>';
+  }
+  const settingContent = '<script type="text/javascript">__meteor_runtime_config__ = JSON.parse(decodeURIComponent("'+encodeURIComponent(JSON.stringify(settings))+'"));</script>' + settingExtraContent;
   indexContent = indexContent.replace(/{{ *> *scripts *}}/, settingContent + scriptLinkList.join('\n'));
 
   // write the index.html
