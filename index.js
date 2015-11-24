@@ -13,7 +13,7 @@ function execute(command, args, cwd, callback) {
     console.log(data);
   });
   spawn.stderr.on('data', function(warn) {
-    console.log(warn);
+    console.log(warn.toString('utf8'));
   });
   spawn.stderr.on('error', function(error) {
     callback(error);
