@@ -134,7 +134,9 @@ function createIndexHtml(state, callback) {
   let settingExtraContent = '';
   //if set ddp url, change DDP_DEFAULT_CONNECTION_URL in settings
   if (state.ddp_url) {
-    settings.DDP_DEFAULT_CONNECTION_URL = state.ddp_url;
+    if (state.ddp_url !== 'default') {
+      settings.DDP_DEFAULT_CONNECTION_URL = state.ddp_url;
+    }
   }
   //else if have ddp packages, automatic disconnect ddp
   else {
